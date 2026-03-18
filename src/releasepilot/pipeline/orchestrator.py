@@ -328,10 +328,89 @@ def render(
     notes: ReleaseNotes,
     on_progress: ProgressCallback = noop_progress,
 ) -> str:
-    """Stage 6: Render release notes to the configured output format."""
-    on_progress(STAGE_RENDERING)
-    from releasepilot.domain.enums import OutputFormat
+    """Stage 6: Render release notes to the configured output format.
 
+    Dispatches to audience-specific renderers for executive/narrative audiences
+    when combined with PDF/DOCX/Markdown/Plaintext output formats. For the
+    standard audiences the base renderers are used.
+
+    Returns a string for text formats (markdown, plaintext, json) and a
+    base64-encoded string for binary formats (pdf, docx) so the return type
+    stays consistent across the pipeline.
+    """
+    on_progress(STAGE_RENDERING)
+    from releasepilot.domain.enums import Audience, OutputFormat
+
+    fmt = settings.output_format
+    audience = settings.audience
+    lang = settings.render.language or settings.language or "en"
+    accent = settings.render.accent_color
+
+    # --- Executive audience ---------------------------------------------------
+    if audience == Audience.EXECUTIVE:
+        from releasepilot.audience.executive import compose_executive_brief
+
+        brief = compose_executive_brief(notes)
+        if fmt == OutputFormat.PDF:
+            from releasepilot.rendering.executive_pdf import ExecutivePdfRenderer
+
+            raw = ExecutivePdfRenderer().render_bytes(brief, lang=lang, accent_color=accent)
+            import base64
+            return base64.b64encode(raw).decode("ascii")
+        if fmt == OutputFormat.DOCX:
+            from releasepilot.rendering.executive_docx import ExecutiveDocxRenderer
+
+            raw = ExecutiveDocxRenderer().render_bytes(brief, lang=lang, accent_color=accent)
+            import base64
+            return base64.b64encode(raw).decode("ascii")
+        # Markdown / plaintext / json → executive markdown renderer
+        from releasepilot.rendering.executive_md import ExecutiveMarkdownRenderer
+
+        return ExecutiveMarkdownRenderer().render(brief, lang=lang)
+
+    # --- Narrative / Customer-narrative audience ------------------------------
+    if audience in (Audience.NARRATIVE, Audience.CUSTOMER_NARRATIVE):
+        from releasepilot.audience.narrative import compose_narrative
+
+        customer_facing = audience == Audience.CUSTOMER_NARRATIVE
+        brief = compose_narrative(notes, customer_facing=customer_facing)
+        if fmt == OutputFormat.PDF:
+            from releasepilot.rendering.narrative_pdf import NarrativePdfRenderer
+
+            raw = NarrativePdfRenderer().render_bytes(brief, lang=lang, accent_color=accent)
+            import base64
+            return base64.b64encode(raw).decode("ascii")
+        if fmt == OutputFormat.DOCX:
+            from releasepilot.rendering.narrative_docx import NarrativeDocxRenderer
+
+            raw = NarrativeDocxRenderer().render_bytes(brief, lang=lang, accent_color=accent)
+            import base64
+            return base64.b64encode(raw).decode("ascii")
+        if fmt == OutputFormat.PLAINTEXT:
+            from releasepilot.rendering.narrative_plain import NarrativePlaintextRenderer
+
+            return NarrativePlaintextRenderer().render(brief)
+        # Markdown / json → narrative markdown renderer
+        from releasepilot.rendering.narrative_md import NarrativeMarkdownRenderer
+
+        return NarrativeMarkdownRenderer().render(brief, lang=lang)
+
+    # --- Standard audiences (all other) with PDF/DOCX -----------------------
+    if fmt == OutputFormat.PDF:
+        from releasepilot.rendering.pdf import PdfRenderer
+
+        raw = PdfRenderer().render_bytes(notes, settings.render)
+        import base64
+        return base64.b64encode(raw).decode("ascii")
+
+    if fmt == OutputFormat.DOCX:
+        from releasepilot.rendering.docx_renderer import DocxRenderer
+
+        raw = DocxRenderer().render_bytes(notes, settings.render)
+        import base64
+        return base64.b64encode(raw).decode("ascii")
+
+    # --- Standard text formats -----------------------------------------------
     renderers = {
         OutputFormat.MARKDOWN: MarkdownRenderer(),
         OutputFormat.PLAINTEXT: PlaintextRenderer(),
@@ -343,7 +422,10 @@ def render(
 
 
 def generate(settings: Settings, on_progress: ProgressCallback = noop_progress) -> str:
-    """Run the full pipeline end-to-end and return the rendered output."""
+    """Run the full pipeline end-to-end and return the rendered output.
+
+    Returns a string for text formats, base64 for binary formats (PDF, DOCX).
+    """
     release_range = build_release_range(settings, on_progress)
     items = collect(settings, release_range, on_progress)
     items, stats = process_with_stats(settings, items, on_progress)

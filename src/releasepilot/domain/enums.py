@@ -79,6 +79,8 @@ class OutputFormat(StrEnum):
     MARKDOWN = "markdown"
     PLAINTEXT = "plaintext"
     JSON = "json"
+    PDF = "pdf"
+    DOCX = "docx"
 
 
 class Importance(StrEnum):
