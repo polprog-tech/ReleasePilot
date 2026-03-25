@@ -29,6 +29,18 @@ class SecurityHeadersMiddleware:
             "true",
             "yes",
         )
+        # Portal origin(s) allowed to embed this app in an iframe.
+        self._frame_ancestors = self._build_frame_ancestors()
+
+    def _build_frame_ancestors(self) -> str:
+        """Build frame-ancestors value from environment."""
+        if not self._allow_framing:
+            return "'none'"
+        origins_env = os.environ.get("RELEASEPILOT_CORS_ORIGINS", "").strip()
+        if origins_env:
+            origins = " ".join(o.strip() for o in origins_env.split(",") if o.strip())
+            return f"'self' {origins}"
+        return "'self'"
 
     async def __call__(self, scope: Scope, receive: Receive, send: Send) -> None:
         if scope["type"] != "http":
@@ -53,7 +65,8 @@ class SecurityHeadersMiddleware:
                     f"style-src 'self' 'nonce-{nonce}'; "
                     f"style-src-attr 'unsafe-inline'; "
                     f"script-src 'self' 'nonce-{nonce}'; "
-                    f"script-src-attr 'unsafe-inline'"
+                    f"script-src-attr 'unsafe-inline'; "
+                    f"frame-ancestors {self._frame_ancestors}"
                 )
                 headers.append((b"content-security-policy", csp.encode()))
                 headers.append((b"referrer-policy", b"strict-origin-when-cross-origin"))

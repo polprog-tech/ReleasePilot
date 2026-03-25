@@ -127,11 +127,50 @@ def serve(
     """Start the interactive web dashboard server."""
     import uvicorn
 
+    from releasepilot.config.file_config import load_config
     from releasepilot.shared.logging import configure_root_logger
     from releasepilot.web.server import create_app
 
     configure_root_logger(verbose)
-    config: dict[str, str] = {"repo_path": str(Path(repo).resolve())}
+
+    # Load project config file as base defaults (.releasepilot.json, etc.)
+    repo_resolved = str(Path(repo).resolve())
+    file_cfg = load_config(repo_resolved)
+    config: dict[str, str] = {"repo_path": repo_resolved}
+
+    # File config provides defaults for fields not specified via CLI
+    if file_cfg.app_name:
+        config["app_name"] = file_cfg.app_name
+    if file_cfg.audience:
+        config["audience"] = file_cfg.audience
+    if file_cfg.format:
+        config["format"] = file_cfg.format
+    if file_cfg.language:
+        config["language"] = file_cfg.language
+    if file_cfg.title:
+        config["title"] = file_cfg.title
+    if file_cfg.version:
+        config["version"] = file_cfg.version
+    if file_cfg.branch:
+        config["branch"] = file_cfg.branch
+    config["show_authors"] = str(file_cfg.show_authors).lower()
+    config["show_hashes"] = str(file_cfg.show_hashes).lower()
+    if file_cfg.accent_color:
+        config["accent_color"] = file_cfg.accent_color
+    if file_cfg.output_dir:
+        config["output_dir"] = file_cfg.output_dir
+    if file_cfg.overwrite:
+        config["overwrite"] = "true"
+    if file_cfg.repos:
+        config["repos"] = ",".join(file_cfg.repos)
+    if file_cfg.export_formats:
+        config["export_formats"] = ",".join(file_cfg.export_formats)
+    if not file_cfg.gitlab_ssl_verify:
+        config["gitlab_ssl_verify"] = "false"
+    if not file_cfg.github_ssl_verify:
+        config["github_ssl_verify"] = "false"
+
+    # CLI args override file config
     if from_ref:
         config["from_ref"] = from_ref
     if to_ref and to_ref != "HEAD":
